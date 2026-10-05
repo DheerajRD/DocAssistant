@@ -189,10 +189,11 @@ p {
 }
 .shell {
   display: grid;
-  grid-template-columns: 230px 1fr;
+  grid-template-columns: 230px minmax(0, 1fr);
   min-height: 100vh;
 }
 .sidebar {
+  min-width: 0;
   border-right: 1px solid var(--line);
   padding: 30px 18px;
   background: #fff;
@@ -222,6 +223,8 @@ p {
   line-height: 35px;
 }
 nav {
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -237,6 +240,7 @@ nav button[aria-current='page'] {
   font-weight: bold;
 }
 main {
+  min-width: 0;
   padding: 38px 48px;
   max-width: 1400px;
   width: 100%;
@@ -423,7 +427,7 @@ code {
 }
 @media (max-width: 900px) {
   .shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .sidebar {
     height: auto;

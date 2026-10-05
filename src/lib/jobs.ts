@@ -1,8 +1,11 @@
 import 'server-only';
 import { DB, check } from './supabase';
+import { createHash } from 'node:crypto';
+import { loadDocuments } from './data';
+import { deadlines } from './documents';
 import { extractDocument } from './extract';
 import { askAssistant } from './assistant';
-import { whatsappProvider } from './whatsapp';
+import { whatsappProvider, linkHash } from './whatsapp';
 import { productName, appUrl } from './config';
 interface Job {
   id: string;
@@ -107,6 +110,30 @@ async function deleteAccount(db: DB, job: Job) {
       ).error,
     );
   }
+  const { data: identity, error: identityError } = await db.auth.admin.getUserById(job.user_id);
+  check(identityError);
+  check((await db.from('rate_limits').delete().like('key', `%${job.user_id}%`)).error);
+  if (identity.user?.email)
+    check(
+      (
+        await db
+          .from('rate_limits')
+          .delete()
+          .eq(
+            'key',
+            `auth:${createHash('sha256').update(identity.user.email.toLowerCase()).digest('hex')}`,
+          )
+      ).error,
+    );
+  if (job.payload.phone)
+    check(
+      (
+        await db
+          .from('rate_limits')
+          .delete()
+          .eq('key', `wa:${linkHash(job.payload.phone)}`)
+      ).error,
+    );
   // Cascades remove structured rows, messages, chats, reminders, raw extractions, jobs and audits.
   check((await db.auth.admin.deleteUser(job.user_id)).error);
 }
@@ -192,9 +219,19 @@ interface Reminder {
   label: string;
   deadline: string;
   offset_days: number;
+  field_name: string;
   claim_token: string;
 }
 export async function runReminders(db: DB) {
+  if (
+    ![
+      'TWILIO_ACCOUNT_SID',
+      'TWILIO_AUTH_TOKEN',
+      'TWILIO_WHATSAPP_FROM',
+      'TWILIO_REMINDER_CONTENT_SID',
+    ].every((k) => process.env[k])
+  )
+    return { submitted: 0, configured: false };
   const { data, error: r } = await db.rpc('claim_reminders', { p_limit: 20 });
   check(r);
   let submitted = 0;
@@ -205,7 +242,27 @@ export async function runReminders(db: DB) {
       .eq('user_id', reminder.user_id)
       .maybeSingle();
     check(a);
-    if (!account?.verified_at || !account.consent_at) {
+    const docs = await loadDocuments(db, reminder.user_id);
+    const { data: preferences, error: preferencesError } = await db
+      .from('user_preferences')
+      .select('whatsapp_reminders,reminder_offsets')
+      .eq('user_id', reminder.user_id)
+      .single();
+    check(preferencesError);
+    const stillDue = deadlines(docs).some(
+      (d) =>
+        d.documentId === reminder.document_id &&
+        d.field === reminder.field_name &&
+        d.date === reminder.deadline &&
+        d.reviewed,
+    );
+    if (
+      !account?.verified_at ||
+      !account.consent_at ||
+      !stillDue ||
+      !preferences?.whatsapp_reminders ||
+      !preferences.reminder_offsets.includes(reminder.offset_days)
+    ) {
       check(
         (
           await db
@@ -233,17 +290,15 @@ export async function runReminders(db: DB) {
     }
     check(
       (
-        await db
-          .from('reminder_history')
-          .upsert(
-            {
-              reminder_id: reminder.id,
-              user_id: reminder.user_id,
-              provider_message_id: messageId,
-              outcome,
-            },
-            { onConflict: 'reminder_id' },
-          )
+        await db.from('reminder_history').upsert(
+          {
+            reminder_id: reminder.id,
+            user_id: reminder.user_id,
+            provider_message_id: messageId,
+            outcome,
+          },
+          { onConflict: 'reminder_id' },
+        )
       ).error,
     );
     check(

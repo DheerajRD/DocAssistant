@@ -75,7 +75,11 @@ export function Dashboard({ docs, onUpload }: { docs: DocRecord[]; onUpload: () 
           const doc = item.current ?? cpt ?? null;
           const date = doc
             ? deadlines([doc]).find((d) =>
-                item.type === 'CPT' ? d.field === 'employment_end' : true,
+                item.type === 'CPT'
+                  ? d.field === 'employment_end'
+                  : item.type === 'I20'
+                    ? d.field === 'program_end'
+                    : true,
               )
             : null;
           return (

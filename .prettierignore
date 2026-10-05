@@ -4,3 +4,4 @@ package-lock.json
 .demo
 test-results
 playwright-report
+next-env.d.ts

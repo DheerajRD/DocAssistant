@@ -158,14 +158,9 @@ export const PATCH = handler(async (req) => {
   } else {
     if (!['needs_review', 'complete', 'failed'].includes(doc.status))
       throw new HttpError(409, 'Wait for processing before clearing extracted data');
-    const { error: e } = await db.rpc('save_document_fields', {
+    const { error: e } = await db.rpc('clear_document_extraction', {
       p_user: user.id,
       p_document: body.id,
-      p_type: 'UNKNOWN',
-      p_fields: {},
-      p_confidence: {},
-      p_raw: {},
-      p_review: false,
     });
     check(e);
   }
